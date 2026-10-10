@@ -28,6 +28,8 @@ NPM_EXES       := valhalla_build_tiles valhalla_build_admins valhalla_add_predic
                   valhalla_add_landmarks valhalla_ingest_transit valhalla_convert_transit
 NPM_SCRIPTS    := valhalla_build_config valhalla_build_elevation valhalla_build_extract \
                   valhalla_build_timezones valhalla_get_elevation
+NPM_VERSION    ?= $(shell sed -n 's/^\#define VALHALLA_VERSION_\(MAJOR\|MINOR\|PATCH\) \([0-9]*\)/\2/p' \
+                    valhalla/valhalla.h | paste -sd.)
 
 CMAKE_BUILD = cmake --build $(BUILD_DIR) -j$(JOBS)
 TEST_BIN = $(if $(filter gurka_%,$(T)),test/gurka/$(T),test/$(T))
@@ -121,7 +123,7 @@ npm: npm-bundle ## Build the npm .tgz for the current platform into NPM_PKG
 	cp -rp $(NODE_SRC)/lib $(NODE_SRC)/bin proto $(NPM_PKG)/
 	cp -p $(addprefix scripts/,$(NPM_SCRIPTS)) $(NPM_PKG)/
 	cp -rp $(NPM_DIST)/. $(NPM_PKG)/$(NODE_OS)/$(NODE_ARCH)/
-	cd $(NPM_PKG) && npm pack
+	cd $(NPM_PKG) && npm version $(NPM_VERSION) --no-git-tag-version --allow-same-version && npm pack
 	@echo "npm package: $$(ls $(NPM_PKG)/*.tgz)"
 
 clean: ## cmake clean of BUILD_DIR + remove NODE_BUILD_DIR (npm build, bundle, package)
