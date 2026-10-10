@@ -15,6 +15,9 @@ FILE ?= src/sif/truckcost.cc
 CONFIG ?= valhalla.json
 ACTION ?= route
 REQ    ?=
+# make serv CONFIG=data/valhalla.json THREADS=4 (THREADS empty = all cores)
+SERV_BUILD_DIR ?= build-release
+THREADS        ?=
 
 # npm package: separate Release build without ASan, everything it writes stays under NODE_BUILD_DIR
 NODE_BUILD_DIR ?= build-node
@@ -36,7 +39,7 @@ TEST_BIN = $(if $(filter gurka_%,$(T)),test/gurka/$(T),test/$(T))
 
 .DEFAULT_GOAL := help
 .PHONY: help configure reconfigure build lib service tools test truck fuel loki gurka \
-        tests_all format logcheck run clean npm-build npm-bundle npm
+        tests_all format logcheck run serv-build serv clean npm-build npm-bundle npm
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | \
@@ -101,6 +104,17 @@ logcheck: ## Compile FILE with LOGGING_LEVEL_ALL to type-check LOG_DEBUG/TRACE
 run: ## One-shot valhalla_service: ACTION=route REQ=<json or file> CONFIG=<config>
 	$(BUILD_DIR)/valhalla_service $(CONFIG) $(ACTION) '$(REQ)'
 
+serv-build: ## Build valhalla_service in SERV_BUILD_DIR (Release, no ASan)
+	cmake -S . -B $(SERV_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
+	  -DENABLE_ADDRESS_SANITIZER=OFF -DENABLE_TESTS=OFF -DENABLE_BENCHMARKS=OFF \
+	  -DENABLE_SINGLE_FILES_WERROR=OFF \
+	  -DENABLE_CCACHE=ON
+	cmake --build $(SERV_BUILD_DIR) -j$(JOBS) --target valhalla_service
+
+serv: serv-build ## Build and start the HTTP server: CONFIG=<config> THREADS=<n>
+	@test -f $(CONFIG) || { echo "config not found: $(CONFIG) (pass CONFIG=path/to/valhalla.json)"; exit 1; }
+	$(SERV_BUILD_DIR)/valhalla_service $(CONFIG) $(THREADS)
+
 npm-build: ## Build Node.js addon + bundled tools in NODE_BUILD_DIR (Release, no ASan)
 	cmake -S . -B $(NODE_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
 	  -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DENABLE_NODE_BINDINGS=ON \
@@ -126,6 +140,6 @@ npm: npm-bundle ## Build the npm .tgz for the current platform into NPM_PKG
 	cd $(NPM_PKG) && npm version $(NPM_VERSION) --no-git-tag-version --allow-same-version && npm pack
 	@echo "npm package: $$(ls $(NPM_PKG)/*.tgz)"
 
-clean: ## cmake clean of BUILD_DIR + remove NODE_BUILD_DIR (npm build, bundle, package)
+clean: ## cmake clean of BUILD_DIR + remove SERV_BUILD_DIR and NODE_BUILD_DIR
 	-$(CMAKE_BUILD) --target clean
-	rm -rf $(NODE_BUILD_DIR)
+	rm -rf $(SERV_BUILD_DIR) $(NODE_BUILD_DIR)
