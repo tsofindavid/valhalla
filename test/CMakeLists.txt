@@ -453,7 +453,9 @@ if(ENABLE_DATA_TOOLS)
   if(ENABLE_HTTP AND ENABLE_SERVICES)
     # http_tiles needs the proper .tar file with index.bin; run-scripts is a run-time setup step
     add_dependencies(http_tiles utrecht_tiles)
-    add_dependencies(run-http_tiles run-scripts)
+    if(TARGET run-scripts)
+      add_dependencies(run-http_tiles run-scripts)
+    endif()
   endif()
 endif()
 
