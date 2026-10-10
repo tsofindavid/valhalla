@@ -14,6 +14,7 @@ Important build options include:
 | `-DENABLE_DATA_TOOLS` (`On`/`Off`) | Build the data preprocessing tools (defaults to on)|
 | `-DENABLE_HTTP` (`On`/`Off`) | Build with `curl` support (defaults to on)|
 | `-DENABLE_PYTHON_BINDINGS` (`On`/`Off`) | Build the python bindings (defaults to on)|
+| `-DENABLE_NODE_BINDINGS` (`On`/`Off`) | Build the Node.js bindings, see [Node.js bindings](../bindings/nodejs.md#building-from-source) (defaults to off)|
 | `-DENABLE_SERVICES` (`On` / `Off`) | Build the HTTP service (defaults to on)|
 | `-DENABLE_THREAD_SAFE_TILE_REF_COUNT` (`ON` / `OFF`) | If ON uses `shared_ptr` as tile reference (i.e. it is thread safe, defaults to off)|
 | `-DENABLE_CCACHE` (`On` / `Off`) | Speed up incremental rebuilds via `ccache` (defaults to on)|

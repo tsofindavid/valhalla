@@ -200,3 +200,21 @@ The protocol buffer definitions are included in the package at `node_modules/@va
 ### Platforms
 - Linux (arm64, x64)
 - macOS (arm64)
+
+## Building from Source
+
+The package ships a prebuilt native addon, so building is only needed to test local changes. From the repository root:
+
+```bash
+make npm
+```
+
+This configures a Release build without sanitizers in `build-node/`, builds the `valhalla_node` addon and the bundled `valhalla_*` tools, copies them together with their shared libraries via `scripts/bundle.py` and runs `npm pack`. The resulting `.tgz` lands in `build-node/valhalla-npm-package/` and contains only the binaries for the current platform. Install it with:
+
+```bash
+npm install /path/to/valhalla/build-node/valhalla-npm-package/valhallajs-valhallajs-*.tgz
+```
+
+Intermediate steps are available as `make npm-build` (CMake only) and `make npm-bundle` (bundle shared libraries), the build directory can be changed with `NODE_BUILD_DIR=...`. `make clean` removes `build-node/` entirely.
+
+Without `make`, configure CMake with `-DENABLE_NODE_BINDINGS=ON`; the addon is written to `<build>/src/bindings/nodejs/lib/valhalla_node.node` and is loaded from `<package>/<platform>/<arch>/`. Multi-platform packages are assembled in CI by `scripts/create-package.sh`.
