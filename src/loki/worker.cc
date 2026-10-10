@@ -490,10 +490,11 @@ void loki_worker_t::check_hierarchy_distance(Api& request) {
       }
     }
   } else {
-    auto locations = options.locations();
+    // trace requests have no locations
+    const auto& locations = options.locations();
     float arc_distance = 0.0f;
-    for (auto source = locations.begin(); source != locations.end() - 1; ++source) {
-      arc_distance += to_ll(*source).Distance(to_ll(*(source + 1)));
+    for (int i = 1; i < locations.size(); ++i) {
+      arc_distance += to_ll(locations[i - 1]).Distance(to_ll(locations[i]));
       if (arc_distance > max_distance_disable_hierarchy_culling) {
         max_distance_exceeded = true;
         break;

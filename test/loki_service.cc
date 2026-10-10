@@ -603,6 +603,28 @@ TEST(LokiService, test_hierarchy_warning) {
   }
 }
 
+TEST(LokiService, test_hierarchy_distance_trace) {
+  Api request = {};
+  auto& options = *request.mutable_options();
+  options.set_action(Options_Action_trace_attributes);
+  options.set_costing_type(Costing_Type_truck);
+  auto* point = options.mutable_shape()->Add();
+  point->mutable_ll()->set_lat(46.f);
+  point->mutable_ll()->set_lng(8.f);
+  Costing costing;
+  costing.mutable_options()->set_disable_hierarchy_pruning(true);
+  options.mutable_costings()->insert({Costing_Type_truck, costing});
+
+  auto cfg = make_config();
+  loki::loki_worker_t worker(cfg);
+  try {
+    worker.trace(request);
+  } catch (...) {}
+  worker.cleanup();
+
+  EXPECT_EQ(request.info().warnings_size(), 0);
+}
+
 } // namespace
 
 class LokiServiceEnv : public ::testing::Environment {
