@@ -144,6 +144,11 @@ BaseCostingOptionsConfig GetBaseCostOptsConfig() {
 
 const BaseCostingOptionsConfig kBaseCostOptsConfig = GetBaseCostOptsConfig();
 
+// inverse of the weighted grade encoding in elevationbuilder.cc
+float WeightedGradePercent(const uint32_t weighted_grade) {
+  return (static_cast<float>(weighted_grade) - 6.f) / 0.6f;
+}
+
 // Fuel in liters per meter at a constant speed (km/h) on a grade (percent) for a mass in tonnes
 float FuelPerMeter(const float speed,
                    const float grade,
@@ -343,6 +348,8 @@ public:
    */
   virtual float AStarCostFactor() const override;
 
+  float Fuel(const baldr::DirectedEdge* edge, const float length, const float speed) const override;
+
   /**
    * Get the current travel type.
    * @return  Returns the current travel type.
@@ -387,6 +394,10 @@ public:
 
   // Weight of fuel versus time in the edge cost, 0 disables the fuel model
   float fuel_weight_;
+  // Fuel rate coefficients of the fuel model
+  float fuel_alpha0_;
+  float fuel_alpha1_;
+  float fuel_alpha2_;
   // Weighted fuel cost per meter indexed by weighted grade and speed (kph)
   std::vector<std::array<float, kMaxSpeedKph + 1>> fuel_cost_;
   // Lowest weighted fuel cost per meter at or below top speed, for the A* heuristic
@@ -449,18 +460,19 @@ TruckCost::TruckCost(const Costing& costing)
   access_mask_ = no_hgv_access_penalty_active ? (kAutoAccess | kTruckAccess) : kTruckAccess;
 
   fuel_weight_ = costing_options.fuel_weight();
+  fuel_alpha0_ = costing_options.fuel_alpha0();
+  fuel_alpha1_ = costing_options.fuel_alpha1();
+  fuel_alpha2_ = costing_options.fuel_alpha2();
   min_fuel_cost_ = 0.f;
   if (fuel_weight_ > 0.f) {
     const float scale = fuel_weight_ * costing_options.fuel_cost_factor();
     min_fuel_cost_ = std::numeric_limits<float>::max();
     fuel_cost_.resize(kMaxGradeFactor + 1);
     for (uint32_t grade = 0; grade <= kMaxGradeFactor; ++grade) {
-      // inverse of the weighted grade encoding in elevationbuilder.cc
-      const float grade_pct = (static_cast<float>(grade) - 6.f) / 0.6f;
+      const float grade_pct = WeightedGradePercent(grade);
       for (uint32_t speed = 0; speed <= kMaxSpeedKph; ++speed) {
         fuel_cost_[grade][speed] =
-            scale * FuelPerMeter(speed, grade_pct, weight_, costing_options.fuel_alpha0(),
-                                 costing_options.fuel_alpha1(), costing_options.fuel_alpha2());
+            scale * FuelPerMeter(speed, grade_pct, weight_, fuel_alpha0_, fuel_alpha1_, fuel_alpha2_);
         if (speed > 0 && speed <= top_speed_) {
           min_fuel_cost_ = std::min(min_fuel_cost_, fuel_cost_[grade][speed]);
         }
@@ -818,6 +830,15 @@ float TruckCost::AStarCostFactor() const {
     factor = std::min(factor, factor * (1.f - fuel_weight_) + min_fuel_cost_);
   }
   return factor * min_linear_cost_factor_;
+}
+
+float TruckCost::Fuel(const baldr::DirectedEdge* edge, const float length, const float speed) const {
+  // the engine is off on ferries
+  if (edge->use() == Use::kFerry) {
+    return 0.f;
+  }
+  return length * FuelPerMeter(speed, WeightedGradePercent(edge->weighted_grade()), weight_,
+                               fuel_alpha0_, fuel_alpha1_, fuel_alpha2_);
 }
 
 // Returns the current travel type.

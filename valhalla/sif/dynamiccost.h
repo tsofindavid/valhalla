@@ -958,6 +958,20 @@ public:
   virtual float AStarCostFactor() const = 0;
 
   /**
+   * Returns the fuel in liters to drive a length along an edge at a speed.
+   * Costings without a fuel model return 0.
+   * @param  edge    Directed edge.
+   * @param  length  Length driven along the edge in meters.
+   * @param  speed   Speed on the edge in kph.
+   * @return Returns the fuel in liters.
+   */
+  virtual float Fuel(const baldr::DirectedEdge* /*edge*/,
+                     const float /*length*/,
+                     const float /*speed*/) const {
+    return 0.f;
+  }
+
+  /**
    * Get the general unit size that can be considered as equal for sorting
    * purposes. The A* method uses an approximate bucket sort, and this value
    * is used to size the buckets used for sorting. For example, for time

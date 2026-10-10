@@ -421,6 +421,7 @@ message Summary {
   bool has_toll = 5;
   bool has_ferry = 6;
   bool has_highway = 7;
+  float fuel = 8;            // liters, only set by costings with a fuel model
 }
 
 message LevelChange {

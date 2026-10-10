@@ -1930,6 +1930,7 @@ void TripLegBuilder::Build(
   bool has_toll = false;
   bool has_ferry = false;
   bool has_highway = false;
+  float fuel = 0.f;
 
   // loop over the edges to build the trip leg
   for (auto edge_itr = path_begin; edge_itr != path_end; ++edge_itr, ++edge_index) {
@@ -2134,6 +2135,16 @@ void TripLegBuilder::Build(
       }
     }
 
+    if (mode == sif::TravelMode::kDrive) {
+      uint8_t flow_sources;
+      const float secs =
+          costing->EdgeCost(directededge, edge, graphtile, time_info, flow_sources).secs;
+      if (secs > 0.f) {
+        fuel += costing->Fuel(directededge, directededge->length() * (trim_end_pct - trim_start_pct),
+                              directededge->length() / secs * kMetersPerSectoKPH);
+      }
+    }
+
     /**
      * For the level changes, only consider edges  if
      *   - they are on a single level
@@ -2323,6 +2334,7 @@ void TripLegBuilder::Build(
   summary->set_has_toll(has_toll);
   summary->set_has_ferry(has_ferry);
   summary->set_has_highway(has_highway);
+  summary->set_fuel(fuel);
 
   // Add that extra costing information if requested
   AccumulateRecostingInfoForward(options, start_pct, end_pct, forward_time_info, invariant,

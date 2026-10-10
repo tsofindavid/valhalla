@@ -97,6 +97,7 @@ void summary(const valhalla::Api& api, int route_index, rapidjson::writer_wrappe
   double route_time = 0;
   double route_length = 0;
   double route_cost = 0;
+  double route_fuel = 0;
   bool has_time_restrictions = false;
   bool has_toll = false;
   bool has_highway = false;
@@ -108,6 +109,7 @@ void summary(const valhalla::Api& api, int route_index, rapidjson::writer_wrappe
     const auto& trip_leg = api.trip().routes(route_index).legs(leg_index);
     route_time += leg.summary().time();
     route_length += leg.summary().length();
+    route_fuel += leg.summary().fuel();
     route_cost += trip_leg.node().rbegin()->cost().elapsed_cost().cost();
 
     // recostings
@@ -146,6 +148,9 @@ void summary(const valhalla::Api& api, int route_index, rapidjson::writer_wrappe
   writer("length", route_length);
   writer.set_precision(tyr::kDefaultPrecision);
   writer("cost", route_cost);
+  if (route_fuel > 0) {
+    writer("fuel", route_fuel);
+  }
   auto recost_itr = api.options().recostings().begin();
   for (auto recost : recost_times) {
     if (recost < 0)
@@ -656,6 +661,9 @@ void legs(valhalla::Api& api, int route_index, rapidjson::writer_wrapper_t& writ
     writer("length", directions_leg.summary().length());
     writer.set_precision(tyr::kDefaultPrecision);
     writer("cost", trip_leg_itr->node().rbegin()->cost().elapsed_cost().cost());
+    if (directions_leg.summary().fuel() > 0) {
+      writer("fuel", directions_leg.summary().fuel());
+    }
     auto recost_itr = api.options().recostings().begin();
     for (const auto& recost : trip_leg_itr->node().rbegin()->recosts()) {
       if (recost.has_elapsed_cost())

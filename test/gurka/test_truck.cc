@@ -474,3 +474,37 @@ TEST(Standalone, FuelWeightAvoidsHill) {
   // the detour is longer, so it takes more time
   EXPECT_GT(getDuration(fuel_route), getDuration(time_route));
 }
+
+TEST(Standalone, FuelInSummary) {
+  const std::string ascii_map = R"(
+      A-------B
+    )";
+
+  const gurka::ways ways = {{"AB", {{"highway", "primary"}}}};
+
+  const auto layout = gurka::detail::map_to_coordinates(ascii_map, 100);
+  gurka::map map = gurka::buildtiles(layout, ways, {}, {}, "test/data/fuel_summary");
+
+  auto reader = test::make_clean_graphreader(map.config.get_child("mjolnir"));
+  const auto uphill = std::get<0>(gurka::findEdgeByNodes(*reader, layout, "A", "B"));
+  test::customize_edges(map.config, [&](const baldr::GraphId& id, baldr::DirectedEdge& edge) {
+    edge.set_weighted_grade(id == uphill ? 11 : 1);
+  });
+
+  const auto leg_fuel = [](const valhalla::Api& api) {
+    EXPECT_FLOAT_EQ(api.trip().routes(0).legs(0).summary().fuel(),
+                    api.directions().routes(0).legs(0).summary().fuel());
+    return api.directions().routes(0).legs(0).summary().fuel();
+  };
+
+  const float up = leg_fuel(gurka::do_action(valhalla::Options::route, map, {"A", "B"}, "truck"));
+  const float down = leg_fuel(gurka::do_action(valhalla::Options::route, map, {"B", "A"}, "truck"));
+  EXPECT_GT(down, 0.f);
+  EXPECT_GT(up, down);
+
+  const float heavy = leg_fuel(gurka::do_action(valhalla::Options::route, map, {"A", "B"}, "truck",
+                                                {{"/costing_options/truck/weight", "40"}}));
+  EXPECT_GT(heavy, up);
+
+  EXPECT_EQ(leg_fuel(gurka::do_action(valhalla::Options::route, map, {"A", "B"}, "auto")), 0.f);
+}
