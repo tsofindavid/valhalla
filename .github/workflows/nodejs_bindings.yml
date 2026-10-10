@@ -27,6 +27,12 @@ on:
       - "**/CMakeLists.txt"
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to npm (dist-tag latest on a tag, next on a branch)"
+        type: boolean
+        default: false
 
 # Cancel CI runs on a branch when new commits were pushed
 # See https://stackoverflow.com/a/72408109/2582935
@@ -234,7 +240,7 @@ jobs:
     name: publish
     runs-on: ubuntu-latest
     needs: [verify_nodejs_package]
-    if: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'schedule')) && (github.repository_owner == 'tsofindavid') }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish || github.event_name != 'workflow_dispatch' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule')) && (github.repository_owner == 'tsofindavid') }}
     permissions:
       contents: read
       id-token: write
@@ -257,5 +263,5 @@ jobs:
           echo "[INFO] Downloaded package:"
           ls -lh *.tgz
           echo "[INFO] Publishing to NPM..."
-          npm publish *.tgz --access public --tag latest --provenance
+          npm publish *.tgz --access public --tag ${{ startsWith(github.ref, 'refs/tags/') && 'latest' || 'next' }} --provenance
 
