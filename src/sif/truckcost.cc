@@ -7,6 +7,10 @@
 #include "proto_conversions.h"
 #include "sif/osrm_car_duration.h"
 
+#include <array>
+#include <limits>
+#include <vector>
+
 #ifdef INLINE_TEST
 #include "test.h"
 #include "worker.h"
@@ -57,6 +61,23 @@ constexpr float kDefaultTruckWidth = 2.6f;     // Meters (102.36 inches)
 constexpr float kDefaultTruckLength = 21.64f;  // Meters (71 feet)
 constexpr uint32_t kDefaultAxleCount = 5;      // 5 axles for above truck config
 
+// Fuel model: resistance, power at constant speed and convex fuel rate from Rakha et al.
+// Speed in km/h, mass in kg, force in N, power in kW, fuel in liters.
+constexpr float kFuelAirDensity = 1.2256f; // kg/m^3
+constexpr float kFuelDragCoefficient = 0.78f;
+constexpr float kFuelFrontalArea = 10.f; // m^2
+constexpr float kFuelRollingCoefficient = 1.25f;
+constexpr float kFuelRollingC1 = 0.0328f;
+constexpr float kFuelRollingC2 = 4.575f;
+constexpr float kFuelDrivelineEfficiency = 0.94f;
+// TODO: the paper's formula reads 2 * alpha0 for P >= 0, confirm against the source
+constexpr float kFuelIdleMultiplier = 2.f;
+constexpr float kGravity = 9.8066f;
+constexpr float kDefaultFuelCostFactor = 90.f; // seconds per liter: 1.5 per liter / 60 per hour
+constexpr float kDefaultFuelAlpha0 = 1.56e-3f; // L/s
+constexpr float kDefaultFuelAlpha1 = 8.1e-5f;  // L/(s*kW)
+constexpr float kDefaultFuelAlpha2 = 1e-8f;    // L/(s*kW^2)
+
 // Turn costs based on side of street driving
 constexpr float kRightSideTurnCosts[] = {kTCStraight,       kTCSlight,  kTCFavorable,
                                          kTCFavorableSharp, kTCReverse, kTCUnfavorableSharp,
@@ -102,6 +123,11 @@ constexpr ranged_default_t<float> kUseHighwaysRange{0.f, kDefaultUseHighways, 1.
 constexpr ranged_default_t<float> kTopSpeedRange{10.f, kMaxAssumedTruckSpeed, kMaxSpeedKph};
 constexpr ranged_default_t<float> kHGVNoAccessRange{0.f, kMaxPenalty, kMaxPenalty};
 constexpr ranged_default_t<float> kUseTruckRouteRange{0.f, kDefaultUseTruckRoute, 1.0f};
+constexpr ranged_default_t<float> kFuelWeightRange{0.f, 0.f, 1.0f};
+constexpr ranged_default_t<float> kFuelCostFactorRange{0.f, kDefaultFuelCostFactor, 10000.f};
+constexpr ranged_default_t<float> kFuelAlpha0Range{0.f, kDefaultFuelAlpha0, 1.f};
+constexpr ranged_default_t<float> kFuelAlpha1Range{0.f, kDefaultFuelAlpha1, 1.f};
+constexpr ranged_default_t<float> kFuelAlpha2Range{0.f, kDefaultFuelAlpha2, 1.f};
 
 BaseCostingOptionsConfig GetBaseCostOptsConfig() {
   BaseCostingOptionsConfig cfg{};
@@ -117,6 +143,28 @@ BaseCostingOptionsConfig GetBaseCostOptsConfig() {
 }
 
 const BaseCostingOptionsConfig kBaseCostOptsConfig = GetBaseCostOptsConfig();
+
+// Fuel in liters per meter at a constant speed (km/h) on a grade (percent) for a mass in tonnes
+float FuelPerMeter(const float speed,
+                   const float grade,
+                   const float weight,
+                   const float alpha0,
+                   const float alpha1,
+                   const float alpha2) {
+  // idle for kSpeedFactor[0] seconds per meter
+  if (speed <= 0.f) {
+    return alpha0 * kSpeedFactor[0];
+  }
+  const float mass = weight * 1000.f;
+  const float resistance =
+      kFuelAirDensity / 25.92f * kFuelDragCoefficient * kFuelFrontalArea * speed * speed +
+      kGravity * mass * kFuelRollingCoefficient / 1000.f * (kFuelRollingC1 * speed + kFuelRollingC2) +
+      kGravity * mass * grade * 0.01f;
+  const float power = resistance * speed / (3600.f * kFuelDrivelineEfficiency);
+  const float rate =
+      power >= 0.f ? kFuelIdleMultiplier * alpha0 + alpha1 * power + alpha2 * power * power : alpha0;
+  return rate * 3.6f / speed;
+}
 
 } // namespace
 
@@ -336,6 +384,13 @@ public:
 
   // determine if we should allow hgv=no edges and penalize them instead
   float no_hgv_access_penalty_;
+
+  // Weight of fuel versus time in the edge cost, 0 disables the fuel model
+  float fuel_weight_;
+  // Weighted fuel cost per meter indexed by weighted grade and speed (kph)
+  std::vector<std::array<float, kMaxSpeedKph + 1>> fuel_cost_;
+  // Lowest weighted fuel cost per meter at or below top speed, for the A* heuristic
+  float min_fuel_cost_;
 };
 
 // Constructor
@@ -392,6 +447,26 @@ TruckCost::TruckCost(const Costing& costing)
   no_hgv_access_penalty_ = no_hgv_access_penalty_active * costing_options.hgv_no_access_penalty();
   // set the access mask to both car & truck if that penalty is active
   access_mask_ = no_hgv_access_penalty_active ? (kAutoAccess | kTruckAccess) : kTruckAccess;
+
+  fuel_weight_ = costing_options.fuel_weight();
+  min_fuel_cost_ = 0.f;
+  if (fuel_weight_ > 0.f) {
+    const float scale = fuel_weight_ * costing_options.fuel_cost_factor();
+    min_fuel_cost_ = std::numeric_limits<float>::max();
+    fuel_cost_.resize(kMaxGradeFactor + 1);
+    for (uint32_t grade = 0; grade <= kMaxGradeFactor; ++grade) {
+      // inverse of the weighted grade encoding in elevationbuilder.cc
+      const float grade_pct = (static_cast<float>(grade) - 6.f) / 0.6f;
+      for (uint32_t speed = 0; speed <= kMaxSpeedKph; ++speed) {
+        fuel_cost_[grade][speed] =
+            scale * FuelPerMeter(speed, grade_pct, weight_, costing_options.fuel_alpha0(),
+                                 costing_options.fuel_alpha1(), costing_options.fuel_alpha2());
+        if (speed > 0 && speed <= top_speed_) {
+          min_fuel_cost_ = std::min(min_fuel_cost_, fuel_cost_[grade][speed]);
+        }
+      }
+    }
+  }
 }
 
 // Destructor
@@ -524,6 +599,7 @@ Cost TruckCost::EdgeCost(const baldr::DirectedEdge* edge,
     return Cost(edge->length(), sec);
   }
 
+  float cost = sec * inv_distance_factor_ + edge->length() * distance_factor_;
   float factor = 1.f;
   switch (edge->use()) {
     case Use::kFerry:
@@ -534,6 +610,11 @@ Cost TruckCost::EdgeCost(const baldr::DirectedEdge* edge,
       break;
     default:
       factor = kDensityFactor[edge->density()];
+      // the engine is off on ferries, so they keep a time based cost
+      if (fuel_weight_ > 0.f) {
+        cost = cost * (1.f - fuel_weight_) +
+               edge->length() * fuel_cost_[edge->weighted_grade()][final_speed];
+      }
       break;
   }
 
@@ -564,7 +645,7 @@ Cost TruckCost::EdgeCost(const baldr::DirectedEdge* edge,
     factor *= closure_factor_;
   }
 
-  return Cost((sec * inv_distance_factor_ + edge->length() * distance_factor_) * factor, sec);
+  return Cost(cost * factor, sec);
 }
 
 // Returns the time (in seconds) to make the transition from the predecessor
@@ -731,7 +812,12 @@ Cost TruckCost::TransitionCostReverse(const uint32_t idx,
 // assume the maximum speed is used to the destination such that the time
 // estimate is less than the least possible time along roads.
 float TruckCost::AStarCostFactor() const {
-  return kSpeedFactor[top_speed_] * min_linear_cost_factor_;
+  float factor = kSpeedFactor[top_speed_];
+  if (fuel_weight_ > 0.f) {
+    // ferries keep a time based cost
+    factor = std::min(factor, factor * (1.f - fuel_weight_) + min_fuel_cost_);
+  }
+  return factor * min_linear_cost_factor_;
 }
 
 // Returns the current travel type.
@@ -765,6 +851,16 @@ void ParseTruckCostOptions(const rapidjson::Document& doc,
                           hgv_no_access_penalty, warnings);
   JSON_PBF_RANGED_DEFAULT_V2(co, kUseTruckRouteRange, json, "/use_truck_route", use_truck_route,
                              warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kFuelWeightRange, json, "/fuel_weight", fuel_weight, warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kFuelCostFactorRange, json, "/fuel_cost_factor", fuel_cost_factor,
+                          warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kFuelAlpha0Range, json, "/fuel_alpha0", fuel_alpha0, warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kFuelAlpha1Range, json, "/fuel_alpha1", fuel_alpha1, warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kFuelAlpha2Range, json, "/fuel_alpha2", fuel_alpha2, warnings);
+  // shortcuts have a flat weighted grade, so the fuel model needs the base graph
+  if (co->fuel_weight() > 0.f && !rapidjson::get_optional<bool>(json, "/disable_hierarchy_pruning")) {
+    co->set_disable_hierarchy_pruning(true);
+  }
 }
 
 cost_ptr_t CreateTruckCost(const Costing& costing_options) {
@@ -791,8 +887,10 @@ public:
   using TruckCost::country_crossing_cost_;
   using TruckCost::destination_only_penalty_;
   using TruckCost::ferry_transition_cost_;
+  using TruckCost::fuel_cost_;
   using TruckCost::gate_cost_;
   using TruckCost::maneuver_penalty_;
+  using TruckCost::min_fuel_cost_;
   using TruckCost::service_factor_;
   using TruckCost::service_penalty_;
   using TruckCost::toll_booth_cost_;
@@ -937,6 +1035,54 @@ TEST(TruckCost, testTruckCostParams) {
     EXPECT_THAT(ctorTester->axle_load_,
                 test::IsBetween(kTruckAxleLoadRange.min, kTruckAxleLoadRange.max));
   }
+}
+
+TEST(TruckCost, FuelPerMeterMatchesReference) {
+  // control values from the Python reference model: {weight t, grade code, speed kph, L/m}
+  const std::vector<std::tuple<float, uint32_t, float, float>> cases = {
+      {10.f, 0, 30.f, 1.872e-4f}, {10.f, 6, 30.f, 4.618191e-4f}, {10.f, 15, 80.f, 1.768453e-3f},
+      {40.f, 0, 80.f, 7.02e-5f},  {40.f, 6, 80.f, 6.566943e-4f}, {40.f, 15, 30.f, 6.069433e-3f},
+  };
+  for (const auto& [weight, grade, speed, expected] : cases) {
+    const float grade_pct = (static_cast<float>(grade) - 6.f) / 0.6f;
+    EXPECT_NEAR(FuelPerMeter(speed, grade_pct, weight, kDefaultFuelAlpha0, kDefaultFuelAlpha1,
+                             kDefaultFuelAlpha2),
+                expected, expected * 1e-4f)
+        << weight << " t, grade " << grade << ", " << speed << " kph";
+  }
+}
+
+TEST(TruckCost, FuelTable) {
+  Api request;
+  ParseApi(R"({"costing":"truck","costing_options":{"truck":{"fuel_weight":1}}})",
+           valhalla::Options::route, request);
+  const auto& costing = request.options().costings().find(Costing::truck)->second;
+  EXPECT_TRUE(costing.options().disable_hierarchy_pruning());
+  TestTruckCost light(costing);
+
+  ParseApi(R"({"costing":"truck","costing_options":{"truck":{"fuel_weight":1,"weight":40}}})",
+           valhalla::Options::route, request);
+  TestTruckCost heavy(request.options().costings().find(Costing::truck)->second);
+
+  ASSERT_EQ(light.fuel_cost_.size(), kMaxGradeFactor + 1);
+  for (uint32_t speed = 1; speed <= kMaxAssumedTruckSpeed; ++speed) {
+    for (uint32_t grade = 1; grade <= kMaxGradeFactor; ++grade) {
+      EXPECT_GE(light.fuel_cost_[grade][speed], light.fuel_cost_[grade - 1][speed]);
+      // downhill a heavier truck coasts (P < 0) where a lighter one still needs power
+      if (grade >= 6) {
+        EXPECT_GE(heavy.fuel_cost_[grade][speed], light.fuel_cost_[grade][speed]);
+      }
+      // the heuristic must never exceed the cost of any edge
+      EXPECT_LE(light.AStarCostFactor(), light.fuel_cost_[grade][speed]);
+    }
+  }
+  EXPECT_GT(light.min_fuel_cost_, 0.f);
+
+  // the fuel model is off by default and does not touch hierarchy pruning
+  ParseApi(R"({"costing":"truck"})", valhalla::Options::route, request);
+  const auto& off = request.options().costings().find(Costing::truck)->second;
+  EXPECT_FALSE(off.options().disable_hierarchy_pruning());
+  EXPECT_TRUE(TestTruckCost(off).fuel_cost_.empty());
 }
 } // namespace
 

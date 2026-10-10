@@ -421,3 +421,56 @@ TEST(Standalone, LowRoadClassPenalty_2) {
   // should avoid the residential path here
   gurka::assert::raw::expect_path(route, {"AC", "CE", "EF", "DF", "LD"});
 }
+
+TEST(Standalone, FuelWeightAvoidsHill) {
+  constexpr double gridsize = 100;
+
+  // ABD climbs over a hill, ACED is a longer flat detour
+  const std::string ascii_map = R"(
+      A---B---D
+      |       |
+      |       |
+      C-------E
+    )";
+
+  const gurka::ways ways = {{"AB", {{"highway", "residential"}}},
+                            {"BD", {{"highway", "residential"}}},
+                            {"AC", {{"highway", "residential"}}},
+                            {"CE", {{"highway", "residential"}}},
+                            {"ED", {{"highway", "residential"}}}};
+
+  const auto layout = gurka::detail::map_to_coordinates(ascii_map, gridsize);
+  gurka::map map = gurka::buildtiles(layout, ways, {}, {}, "test/data/fuel_weight_hill");
+
+  auto reader = test::make_clean_graphreader(map.config.get_child("mjolnir"));
+  const std::vector<baldr::GraphId> uphill = {std::get<0>(
+                                                  gurka::findEdgeByNodes(*reader, layout, "A", "B")),
+                                              std::get<0>(
+                                                  gurka::findEdgeByNodes(*reader, layout, "D", "B"))};
+  const std::vector<baldr::GraphId> downhill = {std::get<0>(gurka::findEdgeByNodes(*reader, layout,
+                                                                                   "B", "A")),
+                                                std::get<0>(gurka::findEdgeByNodes(*reader, layout,
+                                                                                   "B", "D"))};
+  // weighted grade 11 is about +8.3%, 1 is about -8.3%
+  test::customize_edges(map.config, [&](const baldr::GraphId& id, baldr::DirectedEdge& edge) {
+    if (std::find(uphill.begin(), uphill.end(), id) != uphill.end()) {
+      edge.set_weighted_grade(11);
+    } else if (std::find(downhill.begin(), downhill.end(), id) != downhill.end()) {
+      edge.set_weighted_grade(1);
+    }
+  });
+
+  auto time_route = gurka::do_action(valhalla::Options::route, map, {"A", "D"}, "truck");
+  gurka::assert::raw::expect_path(time_route, {"AB", "BD"});
+
+  auto zero_route = gurka::do_action(valhalla::Options::route, map, {"A", "D"}, "truck",
+                                     {{"/costing_options/truck/fuel_weight", "0"}});
+  gurka::assert::raw::expect_path(zero_route, {"AB", "BD"});
+  EXPECT_EQ(getDuration(zero_route), getDuration(time_route));
+
+  auto fuel_route = gurka::do_action(valhalla::Options::route, map, {"A", "D"}, "truck",
+                                     {{"/costing_options/truck/fuel_weight", "1"}});
+  gurka::assert::raw::expect_path(fuel_route, {"AC", "CE", "ED"});
+  // the detour is longer, so it takes more time
+  EXPECT_GT(getDuration(fuel_route), getDuration(time_route));
+}

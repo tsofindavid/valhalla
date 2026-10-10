@@ -355,12 +355,30 @@ message Costing {
     oneof has_speed_penalty_factor {
           float speed_penalty_factor = 95;
         }
-    oneof has_multimodal_start_end_max_distance {
+    
+        oneof has_multimodal_start_end_max_distance {
       uint32 multimodal_start_end_max_distance = 96;
     }
 
     oneof has_low_class_factor {
       float low_class_factor = 97;
+    }
+
+    // this is used as fuel consamption conf
+    oneof has_fuel_weight {
+      float fuel_weight = 98;
+    }
+    oneof has_fuel_cost_factor {
+      float fuel_cost_factor = 99;
+    }
+    oneof has_fuel_alpha0 {
+      float fuel_alpha0 = 100;
+    }
+    oneof has_fuel_alpha1 {
+      float fuel_alpha1 = 101;
+    }
+    oneof has_fuel_alpha2 {
+      float fuel_alpha2 = 102;
     }
   }
 
