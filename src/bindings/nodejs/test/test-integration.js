@@ -1,6 +1,6 @@
 const { describe, test } = require('node:test');
 const assert = require('node:assert');
-const valhalla = require('@valhallajs/valhallajs');
+const valhalla = require('@tsofindavid/valhalla');
 
 describe('Valhalla Integration Tests', () => {
   test('should generate routes using built tiles', async () => {

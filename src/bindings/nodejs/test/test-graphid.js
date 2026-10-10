@@ -1,6 +1,6 @@
 const { describe, test } = require('node:test');
 const assert = require('node:assert');
-const { GraphId, getTileBaseLonLat, getTileIdFromLonLat, getTileIdsFromBbox, getTileIdsFromRing } = require('@valhallajs/valhallajs');
+const { GraphId, getTileBaseLonLat, getTileIdFromLonLat, getTileIdsFromBbox, getTileIdsFromRing } = require('@tsofindavid/valhalla');
 
 describe('GraphId', () => {
   test('should export GraphId class', () => {

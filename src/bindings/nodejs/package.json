@@ -1,5 +1,5 @@
 {
-  "name": "@valhallajs/valhallajs",
+  "name": "@tsofindavid/valhalla",
   "version": "0.0.1",
   "description": "NodeJs bindings for Valhalla",
   "main": "index.js",
@@ -31,12 +31,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/valhalla/valhalla.git"
+    "url": "git+https://github.com/tsofindavid/valhalla.git"
   },
   "author": "Valhalla Contributors",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/valhalla/valhalla/issues"
+    "url": "https://github.com/tsofindavid/valhalla/issues"
   },
-  "homepage": "https://github.com/valhalla/valhalla#readme"
+  "homepage": "https://github.com/tsofindavid/valhalla#readme"
 }

@@ -5,7 +5,7 @@ Node.js bindings for [Valhalla](https://github.com/valhalla/valhalla), an open-s
 ## Installation
 
 ```bash
-npm install @valhallajs/valhallajs
+npm install @tsofindavid/valhalla
 ```
 
 ## Quick Start
@@ -28,7 +28,7 @@ npx valhalla build_tiles -c config.json berlin-latest.osm.pbf
 ### 2. Use Valhalla for Routing
 
 ```javascript
-import { Actor, getConfig } from '@valhallajs/valhallajs';
+import { Actor, getConfig } from '@tsofindavid/valhalla';
 
 async function main() {
   // Create an actor with config generated on previous step
@@ -54,7 +54,7 @@ main();
 When a routing operation fails, the returned promise rejects with a `ValhallaError` (an `Error` subclass) containing structured fields from Valhalla's internal error codes:
 
 ```javascript
-import { Actor, ValhallaError } from '@valhallajs/valhallajs';
+import { Actor, ValhallaError } from '@tsofindavid/valhalla';
 
 const actor = await Actor.fromConfigFile('config.json');
 
@@ -81,7 +81,7 @@ try {
 The `GraphId` class represents Valhalla's internal graph identifiers, which encode a hierarchy level, tile ID, and element ID.
 
 ```javascript
-import { GraphId } from '@valhallajs/valhallajs';
+import { GraphId } from '@tsofindavid/valhalla';
 
 // Construct from components: (tileid, level, id)
 const gid = new GraphId(100, 2, 5);
@@ -130,7 +130,7 @@ The following methods support `format: 'pbf'`:
 When you request `format: 'pbf'`, the method returns a Node.js Buffer containing serialized protobuf data instead of a parsed JSON object.
 
 ```javascript
-import { Actor } from '@valhallajs/valhallajs';
+import { Actor } from '@tsofindavid/valhalla';
 import protobuf from 'protobufjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -141,7 +141,7 @@ async function main() {
   const actor = await Actor.fromConfigFile('config.json');
 
   // Load the protobuf definition
-  const protoPath = join(__dirname, 'node_modules/@valhallajs/valhallajs/proto/api.proto');
+  const protoPath = join(__dirname, 'node_modules/@tsofindavid/valhalla/proto/api.proto');
   const root = await protobuf.load(protoPath);
   const Api = root.lookupType('valhalla.Api');
 
@@ -187,7 +187,7 @@ npm install protobufjs
 
 ### Proto Files Location
 
-The protocol buffer definitions are included in the package at `node_modules/@valhallajs/valhallajs/proto/`. The main entry point is `api.proto`, which imports all other necessary definitions.
+The protocol buffer definitions are included in the package at `node_modules/@tsofindavid/valhalla/proto/`. The main entry point is `api.proto`, which imports all other necessary definitions.
 
 ## Compatibility
 
@@ -212,7 +212,7 @@ make npm
 This configures a Release build without sanitizers in `build-node/`, builds the `valhalla_node` addon and the bundled `valhalla_*` tools, copies them together with their shared libraries via `scripts/bundle.py` and runs `npm pack`. The resulting `.tgz` lands in `build-node/valhalla-npm-package/` and contains only the binaries for the current platform. Install it with:
 
 ```bash
-npm install /path/to/valhalla/build-node/valhalla-npm-package/valhallajs-valhallajs-*.tgz
+npm install /path/to/valhalla/build-node/valhalla-npm-package/tsofindavid-valhalla-*.tgz
 ```
 
 Intermediate steps are available as `make npm-build` (CMake only) and `make npm-bundle` (bundle shared libraries), the build directory can be changed with `NODE_BUILD_DIR=...`. `make clean` removes `build-node/` entirely.

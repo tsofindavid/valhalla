@@ -24,7 +24,7 @@ else
     echo "[INFO] Building WEEKLY version: ${VERSION}"
 fi
 
-# Update package.json version (package name stays as @valhallajs/valhallajs)
+# Update package.json version (package name stays as @tsofindavid/valhalla)
 pushd src/bindings/nodejs
 npm version "${VERSION}" --no-git-tag-version --allow-same-version
 

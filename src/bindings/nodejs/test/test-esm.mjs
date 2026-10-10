@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import valhalla from '@valhallajs/valhallajs';
+import valhalla from '@tsofindavid/valhalla';
 
 describe('Valhalla ESM Tests', () => {
   test('should load Valhalla package successfully', () => {

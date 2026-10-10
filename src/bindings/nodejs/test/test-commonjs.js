@@ -1,6 +1,6 @@
 const { describe, test } = require('node:test');
 const assert = require('node:assert');
-const valhalla = require('@valhallajs/valhallajs');
+const valhalla = require('@tsofindavid/valhalla');
 
 describe('Valhalla CommonJS Tests', () => {
   test('should load Valhalla package successfully', () => {
