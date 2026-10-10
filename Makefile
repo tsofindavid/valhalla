@@ -11,8 +11,13 @@ T ?= gurka_truck
 F ?= *
 # make logcheck FILE=src/sif/truckcost.cc
 FILE ?= src/sif/truckcost.cc
-# make run ACTION=route REQ=req.json CONFIG=valhalla.json
-CONFIG ?= valhalla.json
+# make data PBF_URL=<geofabrik .osm.pbf url>, then make serv / make run use CONFIG
+DATA_DIR ?= data
+PBF_URL  ?= https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf
+PBF      := $(DATA_DIR)/$(notdir $(PBF_URL))
+TILES    := $(abspath $(DATA_DIR))/valhalla_tiles
+# make run ACTION=route REQ=req.json CONFIG=data/valhalla.json
+CONFIG ?= $(DATA_DIR)/valhalla.json
 ACTION ?= route
 REQ    ?=
 # make serv CONFIG=data/valhalla.json THREADS=4 (THREADS empty = all cores)
@@ -39,7 +44,7 @@ TEST_BIN = $(if $(filter gurka_%,$(T)),test/gurka/$(T),test/$(T))
 
 .DEFAULT_GOAL := help
 .PHONY: help configure reconfigure build lib service tools test truck fuel loki gurka \
-        tests_all format logcheck run serv-build serv clean npm-build npm-bundle npm
+        tests_all format logcheck run serv-build serv data clean npm-build npm-bundle npm
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | \
@@ -104,16 +109,30 @@ logcheck: ## Compile FILE with LOGGING_LEVEL_ALL to type-check LOG_DEBUG/TRACE
 run: ## One-shot valhalla_service: ACTION=route REQ=<json or file> CONFIG=<config>
 	$(BUILD_DIR)/valhalla_service $(CONFIG) $(ACTION) '$(REQ)'
 
-serv-build: ## Build valhalla_service in SERV_BUILD_DIR (Release, no ASan)
+serv-build: ## Build valhalla_service + tile tools in SERV_BUILD_DIR (Release, no ASan)
 	cmake -S . -B $(SERV_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
 	  -DENABLE_ADDRESS_SANITIZER=OFF -DENABLE_TESTS=OFF -DENABLE_BENCHMARKS=OFF \
 	  -DENABLE_SINGLE_FILES_WERROR=OFF \
 	  -DENABLE_CCACHE=ON
-	cmake --build $(SERV_BUILD_DIR) -j$(JOBS) --target valhalla_service
+	cmake --build $(SERV_BUILD_DIR) -j$(JOBS) --target valhalla_service valhalla_build_tiles \
+	  valhalla_build_admins
 
 serv: serv-build ## Build and start the HTTP server: CONFIG=<config> THREADS=<n>
-	@test -f $(CONFIG) || { echo "config not found: $(CONFIG) (pass CONFIG=path/to/valhalla.json)"; exit 1; }
+	@test -f $(CONFIG) || { echo "config not found: $(CONFIG) (run make data or pass CONFIG=...)"; exit 1; }
 	$(SERV_BUILD_DIR)/valhalla_service $(CONFIG) $(THREADS)
+
+data: serv-build ## Download PBF_URL, build CONFIG, admins, timezones, tiles and tar in DATA_DIR
+	mkdir -p $(TILES)
+	test -f $(PBF) || { curl -fL -o $(PBF).part $(PBF_URL) && mv $(PBF).part $(PBF); }
+	python3 scripts/valhalla_build_config --mjolnir-tile-dir $(TILES) \
+	  --mjolnir-tile-extract $(TILES).tar --mjolnir-timezone $(TILES)/timezones.sqlite \
+	  --mjolnir-admin $(TILES)/admins.sqlite > $(CONFIG)
+	test -s $(TILES)/timezones.sqlite || { cd $(DATA_DIR) && \
+	  $(CURDIR)/scripts/valhalla_build_timezones > $(TILES)/timezones.sqlite.part && \
+	  mv $(TILES)/timezones.sqlite.part $(TILES)/timezones.sqlite; }
+	$(SERV_BUILD_DIR)/valhalla_build_admins -c $(CONFIG) $(PBF)
+	$(SERV_BUILD_DIR)/valhalla_build_tiles -c $(CONFIG) $(PBF)
+	python3 scripts/valhalla_build_extract -c $(CONFIG) -v
 
 npm-build: ## Build Node.js addon + bundled tools in NODE_BUILD_DIR (Release, no ASan)
 	cmake -S . -B $(NODE_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \

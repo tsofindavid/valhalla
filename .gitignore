@@ -57,3 +57,4 @@ wheelhouse
 proto/typescript/src
 proto/python/src
 proto/typescript/valhallajs-proto-*
+/data/
